@@ -6,18 +6,69 @@
     let processedImage = null;
     let isProcessing = false;
     let isDragOver = false;
+    let minConfidence = 0.1; // Default minimum confidence threshold
+    let modelsLoaded = false;
+    let modelLoadError = null;
+    let lastProcessedConfidence = null; // Track the last processed confidence value
+
+    // Load all models when component mounts
+    onMount(async () => {
+        const preventDefaults = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        window.addEventListener("dragenter", preventDefaults, false);
+        window.addEventListener("dragover", preventDefaults, false);
+        window.addEventListener("dragleave", preventDefaults, false);
+        window.addEventListener("drop", preventDefaults, false);
+
+        // Preload models for faster processing
+        try {
+            // Load models one by one with proper error handling
+            await faceapi.nets.ssdMobilenetv1.load("/models");
+            await faceapi.nets.faceLandmark68Net.load("/models");
+            await faceapi.nets.faceRecognitionNet.load("/models");
+
+            console.log("All models loaded successfully");
+            modelsLoaded = true;
+        } catch (err) {
+            console.error("Error loading models:", err);
+            modelLoadError = `Failed to load face detection models: ${err.message}`;
+        }
+
+        return () => {
+            window.removeEventListener("dragenter", preventDefaults, false);
+            window.removeEventListener("dragover", preventDefaults, false);
+            window.removeEventListener("dragleave", preventDefaults, false);
+            window.removeEventListener("drop", preventDefaults, false);
+        };
+    });
 
     async function handleImageUpload(event) {
         const file = event.target.files[0];
         if (!file) return;
+
+        if (!modelsLoaded) {
+            alert(
+                "Face detection models are not loaded yet. Please wait or check console for errors."
+            );
+            return;
+        }
 
         const img = new Image();
         img.src = URL.createObjectURL(file);
         isProcessing = true; // Ensure spinner is shown immediately
         img.onload = async () => {
             uploadedImage = img;
-            await processImage(img);
-            isProcessing = false;
+            try {
+                await processImage(img);
+            } catch (err) {
+                console.error("Error processing image:", err);
+                alert(`Error processing image: ${err.message}`);
+            } finally {
+                isProcessing = false;
+            }
         };
     }
 
@@ -29,49 +80,122 @@
         const file = event.dataTransfer?.files[0];
         if (!file) return;
 
+        if (!modelsLoaded) {
+            alert(
+                "Face detection models are not loaded yet. Please wait or check console for errors."
+            );
+            return;
+        }
+
         const img = new Image();
         img.src = URL.createObjectURL(file);
         isProcessing = true; // Ensure spinner is shown immediately
         img.onload = async () => {
             uploadedImage = img;
-            await processImage(img);
-            isProcessing = false;
+            try {
+                await processImage(img);
+            } catch (err) {
+                console.error("Error processing image:", err);
+                alert(`Error processing image: ${err.message}`);
+            } finally {
+                isProcessing = false;
+            }
         };
     }
 
     async function processImage(image) {
-        await faceapi.nets.ssdMobilenetv1.loadFromUri("/models");
-        const detections = await faceapi.detectAllFaces(image);
+        if (!modelsLoaded) {
+            throw new Error("Face detection models are not loaded yet");
+        }
 
+        // Create a canvas to get proper image orientation and dimensions
         const canvas = document.createElement("canvas");
         canvas.width = image.width;
         canvas.height = image.height;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(image, 0, 0);
 
-        detections.forEach((detection) => {
-            const { x, y, width, height } = detection.box;
-            const padding = 0.03 * Math.max(width, height); // Add 3% padding around the face
-            const startX = Math.max(0, x - padding);
-            const startY = Math.max(0, y - padding);
-            const blurWidth = Math.min(
-                canvas.width - startX,
-                width + 2 * padding
-            );
-            const blurHeight = Math.min(
-                canvas.height - startY,
-                height + 2 * padding
+        let detections = [];
+
+        try {
+            // First try basic face detection with the specified confidence
+            detections = await faceapi.detectAllFaces(
+                image,
+                new faceapi.SsdMobilenetv1Options({ minConfidence })
             );
 
-            // Extract the face region and apply a blur effect
-            const faceRegion = ctx.getImageData(
-                startX,
-                startY,
-                blurWidth,
-                blurHeight
-            );
-            const blurredRegion = applyBlur(faceRegion, 20); // Apply a strong blur effect
-            ctx.putImageData(blurredRegion, startX, startY);
+            // If we have faces, try to enhance with landmarks for better accuracy
+            if (detections.length > 0) {
+                try {
+                    const enhancedDetections = await faceapi
+                        .detectAllFaces(
+                            image,
+                            new faceapi.SsdMobilenetv1Options({ minConfidence })
+                        )
+                        .withFaceLandmarks();
+
+                    if (enhancedDetections.length > 0) {
+                        detections = enhancedDetections;
+                    }
+                } catch (err) {
+                    console.warn(
+                        "Could not enhance detections with landmarks:",
+                        err
+                    );
+                    // Continue with basic detections
+                }
+            }
+
+            // If no faces found with good confidence, try with lower confidence
+            if (detections.length === 0) {
+                detections = await faceapi.detectAllFaces(
+                    image,
+                    new faceapi.SsdMobilenetv1Options({ minConfidence: 0.2 })
+                );
+            }
+        } catch (err) {
+            console.error("Face detection error:", err);
+            throw new Error(`Face detection failed: ${err.message}`);
+        }
+
+        console.log(`Detected ${detections.length} faces`);
+
+        // Redraw on canvas for processing
+        ctx.drawImage(image, 0, 0);
+
+        // Use detections with detected box or, if using withFaceLandmarks, convert detection format
+        detections.forEach((detection) => {
+            try {
+                // Get face box (handle both raw detections and landmark-enhanced detections)
+                const box = detection.detection
+                    ? detection.detection.box
+                    : detection.box;
+                const { x, y, width, height } = box;
+
+                const padding = 0.1 * Math.max(width, height); // 10% padding for better coverage
+                const startX = Math.max(0, x - padding);
+                const startY = Math.max(0, y - padding);
+                const blurWidth = Math.min(
+                    canvas.width - startX,
+                    width + 2 * padding
+                );
+                const blurHeight = Math.min(
+                    canvas.height - startY,
+                    height + 2 * padding
+                );
+
+                // Extract the face region and apply a blur effect
+                const faceRegion = ctx.getImageData(
+                    startX,
+                    startY,
+                    blurWidth,
+                    blurHeight
+                );
+                const blurredRegion = applyBlur(faceRegion, 40); // Apply a strong blur effect
+                ctx.putImageData(blurredRegion, startX, startY);
+            } catch (err) {
+                console.warn("Error blurring face:", err);
+            }
         });
 
         processedImage = canvas.toDataURL();
@@ -126,84 +250,113 @@
         return new ImageData(blurredData, width, height);
     }
 
-    $: if (isProcessing) {
-        // Force reactivity to ensure spinner updates
-        processedImage = null;
+    // Function to handle reprocessing when slider value is released
+    function handleConfidenceChange() {
+        if (
+            uploadedImage &&
+            modelsLoaded &&
+            !isProcessing &&
+            minConfidence !== lastProcessedConfidence
+        ) {
+            lastProcessedConfidence = minConfidence;
+            isProcessing = true;
+
+            // Small delay to ensure UI updates before processing starts
+            setTimeout(async () => {
+                try {
+                    await processImage(uploadedImage);
+                } catch (err) {
+                    console.error("Error reprocessing image:", err);
+                } finally {
+                    isProcessing = false;
+                }
+            }, 10);
+        }
     }
-
-    // Initialize event listeners to prevent default browser behavior
-    onMount(() => {
-        const preventDefaults = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        };
-
-        window.addEventListener('dragenter', preventDefaults, false);
-        window.addEventListener('dragover', preventDefaults, false);
-        window.addEventListener('dragleave', preventDefaults, false);
-        window.addEventListener('drop', preventDefaults, false);
-
-        return () => {
-            window.removeEventListener('dragenter', preventDefaults, false);
-            window.removeEventListener('dragover', preventDefaults, false);
-            window.removeEventListener('dragleave', preventDefaults, false);
-            window.removeEventListener('drop', preventDefaults, false);
-        };
-    });
 </script>
 
 <main
-  on:dragenter={(e) => {
-    e.preventDefault();
-    isDragOver = true;
-  }}
-  on:dragover={(e) => {
-    e.preventDefault();
-    isDragOver = true;
-  }}
-  on:dragleave={(e) => {
-    e.preventDefault();
-    isDragOver = false;
-  }}
-  on:drop={handleDrop}
+    on:dragenter={(e) => {
+        e.preventDefault();
+        isDragOver = true;
+    }}
+    on:dragover={(e) => {
+        e.preventDefault();
+        isDragOver = true;
+    }}
+    on:dragleave={(e) => {
+        e.preventDefault();
+        isDragOver = false;
+    }}
+    on:drop={handleDrop}
 >
-  <h1>Face Blur Tool</h1>
+    <h1>Face Blur Tool</h1>
 
-  <div class="file-upload-wrapper">
-    <input
-      type="file"
-      accept="image/*"
-      on:change={handleImageUpload}
-    />
-  </div>
+    {#if modelLoadError}
+        <div class="error-message">
+            {modelLoadError}
+        </div>
+    {/if}
 
-  <div
-    class="drop-zone"
-    class:active={isDragOver}
-  >
-    Drag and drop an image here
-  </div>
-
-  {#if processedImage}
-    <h2>Processed Image</h2>
-    <!-- svelte-ignore a11y_img_redundant_alt -->
-    <img
-      src={processedImage}
-      alt="Processed Image"
-    />
-  {:else if uploadedImage}
-    <h2>Original Image</h2>
-    <!-- svelte-ignore a11y_img_redundant_alt -->
-    <img
-      src={uploadedImage.src}
-      alt="Uploaded Image"
-    />
-  {/if}
-  {#if isProcessing}
-    <div class="spinner-overlay">
-      <div class="spinner"></div>
+    <div class="file-upload-wrapper">
+        <input
+            type="file"
+            accept="image/*"
+            on:change={handleImageUpload}
+            disabled={!modelsLoaded}
+        />
     </div>
-  {/if}
+
+    <div class="settings">
+        <div class="setting-group">
+            <label>
+                Detection sensitivity:
+                <input
+                    type="range"
+                    bind:value={minConfidence}
+                    min="0.1"
+                    max="0.9"
+                    step="0.1"
+                    disabled={!modelsLoaded || isProcessing}
+                    on:change={handleConfidenceChange}
+                />
+                <span>{minConfidence.toFixed(1)}</span>
+            </label>
+        </div>
+    </div>
+
+    <div
+        class="drop-zone"
+        class:active={isDragOver}
+        class:disabled={!modelsLoaded}
+    >
+        {#if modelsLoaded}
+            Drag and drop an image here
+        {:else}
+            Loading face detection models...
+        {/if}
+    </div>
+
+    {#if processedImage}
+        <h2>Processed Image</h2>
+        <!-- svelte-ignore a11y_img_redundant_alt -->
+        <img
+            src={processedImage}
+            alt="Processed Image"
+        />
+    {:else if uploadedImage}
+        <h2>Original Image</h2>
+        <!-- svelte-ignore a11y_img_redundant_alt -->
+        <img
+            src={uploadedImage.src}
+            alt="Uploaded Image"
+        />
+    {/if}
+    {#if isProcessing}
+        <div class="spinner-overlay">
+            <div class="spinner"></div>
+        </div>
+    {/if}
 </main>
 
 <style>
@@ -229,6 +382,11 @@
         text-align: center;
         margin: 1em 0;
         cursor: pointer;
+    }
+
+    .drop-zone.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 
     .drop-zone.full-page {
@@ -266,6 +424,42 @@
         width: 40px;
         height: 40px;
         animation: spin 1s linear infinite;
+    }
+
+    .error-message {
+        background-color: rgba(255, 70, 70, 0.2);
+        border: 1px solid #ff4646;
+        color: #ff4646;
+        padding: 0.8em;
+        margin: 1em 0;
+        border-radius: 4px;
+    }
+
+    .settings {
+        margin: 1em 0;
+        padding: 1em;
+        border: 1px solid #333;
+        border-radius: 4px;
+        background-color: rgba(0, 0, 0, 0.1);
+    }
+
+    .setting-group {
+        margin-bottom: 0.5em;
+    }
+
+    label {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+    }
+
+    select,
+    input {
+        padding: 0.3em;
+        border-radius: 3px;
+        background-color: #222;
+        color: #fff;
+        border: 1px solid #555;
     }
 
     @keyframes spin {
