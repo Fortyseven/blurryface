@@ -11,6 +11,8 @@
     let modelLoadError = null;
     let lastProcessedConfidence = null; // Track the last processed confidence value
 
+    const MODELS_ROOT = "models";
+
     // Load all models when component mounts
     onMount(async () => {
         const preventDefaults = (e) => {
@@ -26,9 +28,9 @@
         // Preload models for faster processing
         try {
             // Load models one by one with proper error handling
-            await faceapi.nets.ssdMobilenetv1.load("/models");
-            await faceapi.nets.faceLandmark68Net.load("/models");
-            await faceapi.nets.faceRecognitionNet.load("/models");
+            await faceapi.nets.ssdMobilenetv1.load(MODELS_ROOT);
+            await faceapi.nets.faceLandmark68Net.load(MODELS_ROOT);
+            await faceapi.nets.faceRecognitionNet.load(MODELS_ROOT);
 
             console.log("All models loaded successfully");
             modelsLoaded = true;
