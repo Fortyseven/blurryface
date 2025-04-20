@@ -1,3 +1,5 @@
+![](docs/screencap.png)
+
 # Blurryface
 
 Blurryface is a web application designed to automatically detect and blur faces in photos. It leverages advanced face detection models to ensure privacy and anonymity in images. It is designed to be a single page application that does not require a sever. All operations are done entirely in-browser.
