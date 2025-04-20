@@ -292,7 +292,8 @@
     }}
     on:drop={handleDrop}
 >
-    <h1>Face Blur Tool</h1>
+    <h1>Blurryface</h1>
+    <h2>Remove faces from images automatically, privately.</h2>
 
     {#if modelLoadError}
         <div class="error-message">
