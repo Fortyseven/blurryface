@@ -293,7 +293,14 @@
     on:drop={handleDrop}
 >
     <h1>Blurryface</h1>
-    <h2>Remove faces from images automatically, privately.</h2>
+    <div>
+        <p>Remove faces from images automatically, privately.</p>
+        <p>
+            <a href="https://github.com/Fortyseven/blurryface">
+                Clone this repo.
+            </a>
+        </p>
+    </div>
 
     {#if modelLoadError}
         <div class="error-message">
