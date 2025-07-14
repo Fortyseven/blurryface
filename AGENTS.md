@@ -11,7 +11,7 @@
 ## Code Style Guidelines
 
 - **Imports:** Use double quotes in Svelte files, single quotes in JS files.
-- **Indentation:** 2 spaces.
+- **Indentation:** 4 spaces.
 - **Naming:** Use `camelCase` for variables and functions; descriptive names preferred.
 - **Types:** JavaScript only; no TypeScript or explicit type annotations.
 - **Formatting:** Consistent spacing and line breaks; keep code readable.
