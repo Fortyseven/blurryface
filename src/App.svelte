@@ -10,9 +10,9 @@
     let modelsLoaded = false;
     let modelLoadError = null;
     let lastProcessedConfidence = null; // Track the last processed confidence value
-    let obscureMode = "blur"; // "blur" or "solid"
+    let obscureMode = "blur"; // "blur", "solid", or "emoji"
     let solidColor = "#FF0000"; // Default solid color for obscuring faces
-
+    let selectedEmoji = "😎"; // Default emoji for emoji mode
     const MODELS_ROOT = "models";
 
     // Load all models when component mounts
@@ -179,11 +179,11 @@
                 const padding = 0.1 * Math.max(width, height); // 10% padding for better coverage
                 const startX = Math.max(0, x - padding);
                 const startY = Math.max(0, y - padding);
-                const blurWidth = Math.min(
+                const regionWidth = Math.min(
                     canvas.width - startX,
                     width + 2 * padding
                 );
-                const blurHeight = Math.min(
+                const regionHeight = Math.min(
                     canvas.height - startY,
                     height + 2 * padding
                 );
@@ -193,22 +193,42 @@
                     const faceRegion = ctx.getImageData(
                         startX,
                         startY,
-                        blurWidth,
-                        blurHeight
+                        regionWidth,
+                        regionHeight
                     );
                     const blurredRegion = applyBlur(faceRegion, 40); // Apply a strong blur effect
                     ctx.putImageData(blurredRegion, startX, startY);
                 } else if (obscureMode === "solid") {
                     ctx.save();
                     ctx.fillStyle = solidColor; // Use selected solid color
-                    ctx.fillRect(startX, startY, blurWidth, blurHeight);
+                    ctx.fillRect(startX, startY, regionWidth, regionHeight);
                     ctx.restore();
+                } else if (obscureMode === "emoji") {
+                    drawEmojiOnFace(
+                        ctx,
+                        selectedEmoji,
+                        startX,
+                        startY,
+                        regionWidth,
+                        regionHeight
+                    );
                 }
             } catch (err) {
-                console.warn("Error blurring face:", err);
+                console.warn("Error obscuring face:", err);
             }
         });
 
+        function drawEmojiOnFace(ctx, emoji, x, y, width, height) {
+            ctx.save();
+            // Set font size to fit the region (height is a good proxy)
+            const fontSize = Math.floor(height * 0.9);
+            ctx.font = `${fontSize}px serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            // Center the emoji in the region
+            ctx.fillText(emoji, x + width / 2, y + height / 2);
+            ctx.restore();
+        }
         processedImage = canvas.toDataURL();
     }
 
@@ -284,6 +304,12 @@
             }, 10);
         }
     }
+    // Handler for obscure mode, color, and emoji changes
+    function handleObscureSettingChange() {
+        if (uploadedImage && modelsLoaded && !isProcessing) {
+            processImage(uploadedImage);
+        }
+    }
 </script>
 
 <main
@@ -345,19 +371,41 @@
         <div class="setting-group">
             <label>
                 Obscure mode:
-                <select bind:value={obscureMode} disabled={!modelsLoaded || isProcessing}>
-                    <option value="blur">Blur</option>
-                    <option value="solid">Solid Color</option>
-                </select>
-            </label>
+<select
+    bind:value={obscureMode}
+    disabled={!modelsLoaded || isProcessing}
+    on:change={handleObscureSettingChange}
+>
+    <option value="blur">Blur</option>
+    <option value="solid">Solid Color</option>
+    <option value="emoji">Emoji</option>
+</select>            </label>
         </div>
         {#if obscureMode === "solid"}
-        <div class="setting-group">
-            <label>
-                Solid color:
-                <input type="color" bind:value={solidColor} disabled={!modelsLoaded || isProcessing} />
-            </label>
-        </div>
+            <div class="setting-group">
+                <label>
+                    Solid color:
+<input
+    type="color"
+    bind:value={solidColor}
+    disabled={!modelsLoaded || isProcessing}
+    on:change={handleObscureSettingChange}
+/>                </label>
+            </div>
+        {/if}
+        {#if obscureMode === "emoji"}
+            <div class="setting-group">
+                <label>
+                    Emoji:
+<input
+    type="text"
+    maxlength="2"
+    bind:value={selectedEmoji}
+    disabled={!modelsLoaded || isProcessing}
+    style="width: 2em; font-size: 2em; text-align: center;"
+    on:change={handleObscureSettingChange}
+/>                </label>
+            </div>
         {/if}
     </div>
 
