@@ -10,6 +10,8 @@
     let modelsLoaded = false;
     let modelLoadError = null;
     let lastProcessedConfidence = null; // Track the last processed confidence value
+    let obscureMode = "blur"; // "blur" or "solid"
+    let solidColor = "#FF0000"; // Default solid color for obscuring faces
 
     const MODELS_ROOT = "models";
 
@@ -186,15 +188,22 @@
                     height + 2 * padding
                 );
 
-                // Extract the face region and apply a blur effect
-                const faceRegion = ctx.getImageData(
-                    startX,
-                    startY,
-                    blurWidth,
-                    blurHeight
-                );
-                const blurredRegion = applyBlur(faceRegion, 40); // Apply a strong blur effect
-                ctx.putImageData(blurredRegion, startX, startY);
+                // Extract the face region and apply the selected obscuring effect
+                if (obscureMode === "blur") {
+                    const faceRegion = ctx.getImageData(
+                        startX,
+                        startY,
+                        blurWidth,
+                        blurHeight
+                    );
+                    const blurredRegion = applyBlur(faceRegion, 40); // Apply a strong blur effect
+                    ctx.putImageData(blurredRegion, startX, startY);
+                } else if (obscureMode === "solid") {
+                    ctx.save();
+                    ctx.fillStyle = solidColor; // Use selected solid color
+                    ctx.fillRect(startX, startY, blurWidth, blurHeight);
+                    ctx.restore();
+                }
             } catch (err) {
                 console.warn("Error blurring face:", err);
             }
@@ -333,6 +342,23 @@
                 <span>{minConfidence.toFixed(1)}</span>
             </label>
         </div>
+        <div class="setting-group">
+            <label>
+                Obscure mode:
+                <select bind:value={obscureMode} disabled={!modelsLoaded || isProcessing}>
+                    <option value="blur">Blur</option>
+                    <option value="solid">Solid Color</option>
+                </select>
+            </label>
+        </div>
+        {#if obscureMode === "solid"}
+        <div class="setting-group">
+            <label>
+                Solid color:
+                <input type="color" bind:value={solidColor} disabled={!modelsLoaded || isProcessing} />
+            </label>
+        </div>
+        {/if}
     </div>
 
     <div
